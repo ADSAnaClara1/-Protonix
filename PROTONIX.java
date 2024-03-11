@@ -3,11 +3,23 @@ package PROTONIX;
 import robocode.*;
 import java.awt.Color;
 import robocode.util.Utils;
+import java.util.HashMap;
 
 public class PROTONIX extends AdvancedRobot {
-    
+
     boolean movingForward = true; // Variável booleana para controlar o movimento do robô
     double energyThreshold = 50; // Limite de energia para ativar o "escudo"
+    HashMap<String, EnemyInfo> enemies = new HashMap<>(); // Armazena informações sobre os inimigos detectados
+
+    class EnemyInfo {
+        double distance;
+        double energy;
+
+        EnemyInfo(double distance, double energy) {
+            this.distance = distance;
+            this.energy = energy;
+        }
+    }
 
     public void run() {
         setAdjustGunForRobotTurn(true); // Configuração para ajustar a arma quando o robô girar
@@ -16,63 +28,92 @@ public class PROTONIX extends AdvancedRobot {
         setColors(Color.PINK, Color.PINK, Color.PINK); // Define as cores do corpo, arma e radar como rosa
 
         while (true) { // Loop principal do robô
-            if (movingForward) { // Se estiver movendo para frente
-                setAhead(200); // Move para frente 200 pixels
-                setTurnRight(90); // Vira 90 graus para a direita
-            } else { // Caso contrário
-                setBack(200); // Move para trás 200 pixels
-                setTurnLeft(90); // Vira 90 graus para a esquerda
-            }
-            
-            // Verifica se a energia está abaixo do limite para ativar o "escudo"
-            if (getEnergy() < energyThreshold) {
-                setMaxVelocity(8); // Diminui a velocidade para evitar danos
-            } else {
-                setMaxVelocity(12); // Restaura a velocidade normal
-            }
-            
-            // Gira o radar para escanear o ambiente
-            setTurnRadarRight(Double.POSITIVE_INFINITY);
-            
-            execute(); // Executa os comandos definidos
+            setTurnRadarRight(Double.POSITIVE_INFINITY); // Gira o radar continuamente
+            moveAround(); // Movimenta-se pelo campo de batalha
+            execute(); // Executa os comandos
         }
     }
 
     public void onScannedRobot(ScannedRobotEvent e) {
-        // Obtém o ângulo do inimigo em relação ao robô
-        double enemyBearing = getHeadingRadians() + e.getBearingRadians();
-        
-        // Gira o radar para escanear o inimigo
-        setTurnRadarRightRadians(Utils.normalRelativeAngle(enemyBearing - getRadarHeadingRadians()) * 2);
-        
-        // Gira a arma para mirar no inimigo
-        setTurnGunRightRadians(Utils.normalRelativeAngle(enemyBearing - getGunHeadingRadians()));
-
-        // Dispara com potência proporcional à distância do inimigo
+        String enemyName = e.getName();
         double enemyDistance = e.getDistance();
-        if (enemyDistance < 200) {
-            setFire(3);
-        } else if (enemyDistance < 600) {
-            setFire(2);
-        } else {
-            setFire(1);
+        double enemyEnergy = e.getEnergy();
+
+        // Armazena informações sobre o inimigo
+        enemies.put(enemyName, new EnemyInfo(enemyDistance, enemyEnergy));
+
+        // Atira em todos os inimigos detectados
+        for (EnemyInfo enemy : enemies.values()) {
+            // Verifica se o inimigo está em alcance de tiro
+            if (enemy.distance < 600) {
+                // Calcula o ângulo do inimigo em relação ao robô
+                double enemyBearing = getHeadingRadians() + e.getBearingRadians();
+                // Gira a arma para mirar no inimigo
+                setTurnGunRightRadians(Utils.normalRelativeAngle(enemyBearing - getGunHeadingRadians()));
+                // Dispara com potência proporcional à distância do inimigo
+                if (enemy.distance < 200) {
+                    setFire(3);
+                } else if (enemy.distance < 600) {
+                    setFire(2);
+                }
+            }
         }
 
-        // Se o inimigo estiver a menos de 100 pixels de distância e o robô não estiver movendo para frente, muda a direção do movimento para frente
-        // Se estiver a mais de 400 pixels de distância e o robô estiver movendo para frente, muda a direção do movimento para trás
-        if (enemyDistance < 100 && !movingForward) {
-            movingForward = true;
-        } else if (enemyDistance > 400 && movingForward) {
-            movingForward = false;
+        // Esquiva-se do inimigo se estiver muito próximo
+        if (e.getDistance() < 100) {
+            evadeEnemy();
         }
-
     }
 
     public void onHitRobot(HitRobotEvent event) {
+        // Recua se colidir com um inimigo
         if (event.getBearing() > -90 && event.getBearing() <= 90) {
-            setBack(100); // Recua quando o robô está na frente
+            setBack(100);
         } else {
-            setAhead(100); // Avança quando o robô está atrás
+            setAhead(100);
         }
+    }
+
+    // Método para movimentar-se pelo campo de batalha ao longo das bordas
+private void moveAround() {
+    double fieldWidth = getBattleFieldWidth();
+    double fieldHeight = getBattleFieldHeight();
+
+    double x = getX();
+    double y = getY();
+
+    // Define a distância mínima das bordas para manter o robô
+    double margin = 50;
+
+    // Calcula a direção para se mover ao longo das bordas
+    double moveAngle = 0;
+
+    if (x < margin) {
+        // Perto da borda esquerda
+        moveAngle = 0; // Mova para a direita
+    } else if (y < margin) {
+        // Perto da borda superior
+        moveAngle = Math.PI / 2; // Mova para baixo
+    } else if (x > fieldWidth - margin) {
+        // Perto da borda direita
+        moveAngle = Math.PI; // Mova para a esquerda
+    } else if (y > fieldHeight - margin) {
+        // Perto da borda inferior
+        moveAngle = -Math.PI / 2; // Mova para cima
+    }
+
+    // Ajusta a direção do robô
+    setTurnRightRadians(Utils.normalRelativeAngle(moveAngle - getHeadingRadians()));
+
+    // Move para frente
+    setAhead(100);
+}
+
+    // Método para esquivar-se de um inimigo
+    private void evadeEnemy() {
+        // Obtém o ângulo do inimigo em relação ao robô
+        double bearingToEnemy = getHeadingRadians() + getRadarHeadingRadians();
+        setBack(100 * Math.sin(bearingToEnemy));
+        setTurnRightRadians(Utils.normalRelativeAngle(bearingToEnemy - getHeadingRadians() + Math.PI / 2));
     }
 }
