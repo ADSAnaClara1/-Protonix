@@ -3,117 +3,114 @@ package PROTONIX;
 import robocode.*;
 import java.awt.Color;
 import robocode.util.Utils;
-import java.util.HashMap;
 
 public class PROTONIX extends AdvancedRobot {
 
-    boolean movingForward = true; // Variável booleana para controlar o movimento do robô
-    double energyThreshold = 50; // Limite de energia para ativar o "escudo"
-    HashMap<String, EnemyInfo> enemies = new HashMap<>(); // Armazena informações sobre os inimigos detectados
+    boolean movingForward = true;
+    EnemyInfo target = null;
+    boolean aggressivePhase = false;
+    int numOpponents;
 
     class EnemyInfo {
+        String name;
         double distance;
+        double bearing;
         double energy;
 
-        EnemyInfo(double distance, double energy) {
+        EnemyInfo(String name, double distance, double bearing, double energy) {
+            this.name = name;
             this.distance = distance;
+            this.bearing = bearing;
             this.energy = energy;
         }
     }
 
     public void run() {
-        setAdjustGunForRobotTurn(true); // Configuração para ajustar a arma quando o robô girar
-        setAdjustRadarForGunTurn(true); // Configuração para ajustar o radar quando a arma girar
+         setColors(Color.PINK, Color.PINK, Color.PINK); // Definindo as cores do robô
+        setAdjustRadarForGunTurn(true); // Movimenta o radar independentemente do canhão
+        setAdjustGunForRobotTurn(true); // Movimenta o canhão independentemente do robô
+        
+        // Obtém o número de oponentes na batalha
+        numOpponents = getOthers();
 
-        setColors(Color.PINK, Color.PINK, Color.PINK); // Define as cores do corpo, arma e radar como rosa
-
-        while (true) { // Loop principal do robô
-            setTurnRadarRight(Double.POSITIVE_INFINITY); // Gira o radar continuamente
-            moveAround(); // Movimenta-se pelo campo de batalha
-            execute(); // Executa os comandos
+        while (true) {
+            if (!aggressivePhase && getOthers() <= numOpponents / 2) {
+                aggressivePhase = true;
+                out.println("Aggressive Phase activated!");
+            }
+            
+            if (!aggressivePhase) {
+                defensivePhase();
+            } else {
+                aggressivePhase();
+            }
+            execute();
         }
     }
 
     public void onScannedRobot(ScannedRobotEvent e) {
-        String enemyName = e.getName();
-        double enemyDistance = e.getDistance();
-        double enemyEnergy = e.getEnergy();
+        double absoluteBearing = getHeadingRadians() + e.getBearingRadians();
 
-        // Armazena informações sobre o inimigo
-        enemies.put(enemyName, new EnemyInfo(enemyDistance, enemyEnergy));
-
-        // Atira em todos os inimigos detectados
-        for (EnemyInfo enemy : enemies.values()) {
-            // Verifica se o inimigo está em alcance de tiro
-            if (enemy.distance < 600) {
-                // Calcula o ângulo do inimigo em relação ao robô
-                double enemyBearing = getHeadingRadians() + e.getBearingRadians();
-                // Gira a arma para mirar no inimigo
-                setTurnGunRightRadians(Utils.normalRelativeAngle(enemyBearing - getGunHeadingRadians()));
-                // Dispara com potência proporcional à distância do inimigo
-                if (enemy.distance < 200) {
-                    setFire(3);
-                } else if (enemy.distance < 600) {
-                    setFire(2);
-                }
-            }
+        // Atualiza as informações sobre o alvo
+        if (target == null || e.getDistance() < target.distance || e.getEnergy() > target.energy) {
+            target = new EnemyInfo(e.getName(), e.getDistance(), absoluteBearing, e.getEnergy());
         }
 
-        // Esquiva-se do inimigo se estiver muito próximo
-        if (e.getDistance() < 100) {
-            evadeEnemy();
+        // Mira no alvo
+        setTurnGunRightRadians(Utils.normalRelativeAngle(target.bearing - getGunHeadingRadians()));
+
+        // Calcula a potência do tiro baseado na energia do alvo e na distância
+        double bulletPower = Math.min(3.0, Math.max(0.1, Math.min(getEnergy() / 10, 400 / e.getDistance())));
+        
+        // Na fase agressiva, aumenta a potência dos tiros
+        if (aggressivePhase) {
+            bulletPower = Math.min(3.0, Math.max(0.1, Math.min(getEnergy() / 5, 600 / e.getDistance())));
         }
+
+        setFire(bulletPower);
     }
 
-    public void onHitRobot(HitRobotEvent event) {
-        // Recua se colidir com um inimigo
-        if (event.getBearing() > -90 && event.getBearing() <= 90) {
-            setBack(100);
+    public void onHitWall(HitWallEvent e) {
+        // Se bateu na parede, muda a direção
+        setBack(100);
+        setTurnRight(90);
+        execute();
+    }
+
+    public void onHitRobot(HitRobotEvent e) {
+        // Se colidiu com outro robô, retrocede e gira
+        setBack(100);
+        setTurnRight(90);
+        execute();
+    }
+
+    private void defensivePhase() {
+        scan(); // Escaneia o ambiente
+        moveAround(); // Movimentação inteligente para esquivar-se de tiros
+    }
+
+    private void aggressivePhase() {
+        if (target != null) {
+            // Se tem um alvo, move-se em direção a ele
+            double angleToTarget = getHeadingRadians() + target.bearing;
+            setTurnRightRadians(Utils.normalRelativeAngle(angleToTarget - getHeadingRadians()));
+
+            // Movimenta-se considerando a distância do alvo e as paredes
+            if (target.distance > 200) {
+                setAhead(150);
+            } else {
+                setBack(100);
+            }
         } else {
+            // Se não há alvo, move-se aleatoriamente
+            setTurnRight(90);
             setAhead(100);
         }
     }
 
-    // Método para movimentar-se pelo campo de batalha ao longo das bordas
-private void moveAround() {
-    double fieldWidth = getBattleFieldWidth();
-    double fieldHeight = getBattleFieldHeight();
-
-    double x = getX();
-    double y = getY();
-
-    // Define a distância mínima das bordas para manter o robô
-    double margin = 50;
-
-    // Calcula a direção para se mover ao longo das bordas
-    double moveAngle = 0;
-
-    if (x < margin) {
-        // Perto da borda esquerda
-        moveAngle = 0; // Mova para a direita
-    } else if (y < margin) {
-        // Perto da borda superior
-        moveAngle = Math.PI / 2; // Mova para baixo
-    } else if (x > fieldWidth - margin) {
-        // Perto da borda direita
-        moveAngle = Math.PI; // Mova para a esquerda
-    } else if (y > fieldHeight - margin) {
-        // Perto da borda inferior
-        moveAngle = -Math.PI / 2; // Mova para cima
-    }
-
-    // Ajusta a direção do robô
-    setTurnRightRadians(Utils.normalRelativeAngle(moveAngle - getHeadingRadians()));
-
-    // Move para frente
-    setAhead(100);
-}
-
-    // Método para esquivar-se de um inimigo
-    private void evadeEnemy() {
-        // Obtém o ângulo do inimigo em relação ao robô
-        double bearingToEnemy = getHeadingRadians() + getRadarHeadingRadians();
-        setBack(100 * Math.sin(bearingToEnemy));
-        setTurnRightRadians(Utils.normalRelativeAngle(bearingToEnemy - getHeadingRadians() + Math.PI / 2));
+    private void moveAround() {
+        // Movimentação inteligente para esquivar-se de tiros
+        setTurnRight(90);
+        setAhead(100);
     }
 }
