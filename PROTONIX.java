@@ -109,7 +109,7 @@ public class PROTONIX extends AdvancedRobot {
     }
 
     private void moveAround() {
-        // Movimentação inteligente para esquivar-se de tiros
+        // Movimentação inteligente para esquivar-se de tiros.
         setTurnRight(90);
         setAhead(100);
     }
