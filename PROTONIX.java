@@ -27,7 +27,7 @@ public class PROTONIX extends AdvancedRobot {
 
     public void run() {
          setColors(Color.PINK, Color.PINK, Color.PINK); // Definindo as cores do robô
-        setAdjustRadarForGunTurn(true); // Movimenta o radar independentemente do canhão
+        setAdjustRadarForGunTurn(true); // Movimenta o radar independentemente docanhão
         setAdjustGunForRobotTurn(true); // Movimenta o canhão independentemente do robô
         
         // Obtém o número de oponentes na batalha
